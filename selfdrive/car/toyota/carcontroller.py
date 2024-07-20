@@ -1,9 +1,11 @@
 from cereal import car
 from openpilot.common.numpy_fast import clip, interp
 from openpilot.common.params import Params
+from openpilot.common.swaglog import cloudlog
 from openpilot.selfdrive.car import apply_meas_steer_torque_limits, apply_std_steer_angle_limits, common_fault_avoidance, create_gas_interceptor_command, make_can_msg
 from openpilot.selfdrive.car.interfaces import CarControllerBase
 from openpilot.selfdrive.car.toyota import toyotacan
+from openpilot.selfdrive.car.toyota import secoc
 from openpilot.selfdrive.car.toyota.values import CAR, STATIC_DSU_MSGS, NO_STOP_TIMER_CAR, TSS2_CAR, \
                                         MIN_ACC_SPEED, PEDAL_TRANSITION, CarControllerParams, ToyotaFlags, \
                                         UNSUPPORTED_DSU_CAR, STOP_AND_GO_CAR, TSS2_CAR
@@ -67,6 +69,10 @@ class CarController(CarControllerBase):
     self.gas = 0
     self.accel = 0
 
+    self.secoc_lka_message_counter = 0
+    self.secoc_lta_message_counter = 0
+    self.secoc_prev_reset_counter = 0
+
     # FrogPilot variables
     params = Params()
 
@@ -87,6 +93,18 @@ class CarController(CarControllerBase):
 
     # *** control msgs ***
     can_sends = []
+
+    # *** handle secoc reset counter increase ***
+    if self.CP.flags & ToyotaFlags.SECOC.value:
+      if CS.secoc_synchronization['RESET_CNT'] != self.secoc_prev_reset_counter:
+        self.secoc_lka_message_counter = 0
+        self.secoc_lta_message_counter = 0
+        self.secoc_prev_reset_counter = CS.secoc_synchronization['RESET_CNT']
+
+        # Verify mac of SecOC synchronization message to ensure we have the right key
+        expected_mac = secoc.build_sync_mac(self.CP.secOCKey, int(CS.secoc_synchronization['TRIP_CNT']), int(CS.secoc_synchronization['RESET_CNT']))
+        if int(CS.secoc_synchronization['AUTHENTICATOR']) != expected_mac:
+          cloudlog.warning("SecOC MAC mismatch")
 
     # *** steer torque ***
     new_steer = int(round(actuators.steer * self.params.STEER_MAX))
@@ -121,7 +139,16 @@ class CarController(CarControllerBase):
     # toyota can trace shows STEERING_LKA at 42Hz, with counter adding alternatively 1 and 2;
     # sending it at 100Hz seem to allow a higher rate limit, as the rate limit seems imposed
     # on consecutive messages
-    can_sends.append(toyotacan.create_steer_command(self.packer, apply_steer, apply_steer_req))
+    steer_command = toyotacan.create_steer_command(self.packer, apply_steer, apply_steer_req)
+    if self.CP.flags & ToyotaFlags.SECOC.value:
+      # TODO: check if this slow and needs to be done by the CANPacker
+      steer_command = secoc.add_mac(self.CP.secOCKey,
+                                    int(CS.secoc_synchronization['TRIP_CNT']),
+                                    int(CS.secoc_synchronization['RESET_CNT']),
+                                    self.secoc_lka_message_counter,
+                                    steer_command)
+      self.secoc_lka_message_counter += 1
+    can_sends.append(steer_command)
 
     # STEERING_LTA does not seem to allow more rate by sending faster, and may wind up easier
     if self.frame % 2 == 0 and self.CP.carFingerprint in TSS2_CAR:
@@ -135,6 +162,16 @@ class CarController(CarControllerBase):
       torque_wind_down = 100 if lta_active and full_torque_condition else 0
       can_sends.append(toyotacan.create_lta_steer_command(self.packer, self.CP.steerControlType, self.last_angle,
                                                           lta_active, self.frame // 2, torque_wind_down))
+
+      if self.CP.flags & ToyotaFlags.SECOC.value:
+        lta_steer_2 = toyotacan.create_lta_steer_command_2(self.packer, self.frame // 2)
+        lta_steer_2 = secoc.add_mac(self.CP.secOCKey,
+                                    int(CS.secoc_synchronization['TRIP_CNT']),
+                                    int(CS.secoc_synchronization['RESET_CNT']),
+                                    self.secoc_lta_message_counter,
+                                    lta_steer_2)
+      self.secoc_lta_message_counter += 1
+      can_sends.append(lta_steer_2)
 
     # *** gas and brake ***
     if self.CP.enableGasInterceptor and CC.longActive and self.CP.carFingerprint not in STOP_AND_GO_CAR:

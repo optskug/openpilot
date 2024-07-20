@@ -59,6 +59,9 @@ class ToyotaFlags(IntFlag):
   NO_STOP_TIMER = 256
   # these cars are speculated to allow stop and go when the DSU is unplugged or disabled with sDSU
   SNG_WITHOUT_DSU = 512
+  SECOC = 4096
+  ALT_GAS_MSG = 8192
+  GEAR_PACKET_HYBRID = 16384
 
   # FrogPilot Toyota flags
   ZSS = 1024
@@ -248,6 +251,12 @@ class CAR(Platforms):
     ],
     TOYOTA_RAV4_TSS2.specs,
     flags=ToyotaFlags.RADAR_ACC | ToyotaFlags.ANGLE_CONTROL,
+  )
+  TOYOTA_RAV4_PRIME = PlatformConfig(
+    [],
+    CarSpecs(mass=3650. * CV.LB_TO_KG, wheelbase=2.65, steerRatio=16.88, tireStiffnessFactor=0.5533),
+    dbc_dict('toyota_rav4_prime_generated', 'toyota_tss2_adas'),
+    flags=ToyotaFlags.TSS2 | ToyotaFlags.NO_STOP_TIMER | ToyotaFlags.NO_DSU | ToyotaFlags.SECOC | ToyotaFlags.ALT_GAS_MSG | ToyotaFlags.GEAR_PACKET_HYBRID,
   )
   TOYOTA_MIRAI = ToyotaTSS2PlatformConfig( # TSS 2.5
     [ToyotaCarDocs("Toyota Mirai 2021")],
@@ -571,6 +580,8 @@ UNSUPPORTED_DSU_CAR = CAR.with_flags(ToyotaFlags.UNSUPPORTED_DSU)
 RADAR_ACC_CAR = CAR.with_flags(ToyotaFlags.RADAR_ACC)
 
 ANGLE_CONTROL_CAR = CAR.with_flags(ToyotaFlags.ANGLE_CONTROL)
+
+SECOC_CAR = CAR.with_flags(ToyotaFlags.SECOC)
 
 # no resume button press required
 NO_STOP_TIMER_CAR = CAR.with_flags(ToyotaFlags.NO_STOP_TIMER)
