@@ -260,7 +260,7 @@ class CAR(Platforms):
   )
   TOYOTA_SIENNA_HYBRID = PlatformConfig(
     [],
-    CarSpecs(mass=4725. * CV.LB_TO_KG, wheelbase=3.065, steerRatio=19.67, tireStiffnessFactor=0.5533),
+    CarSpecs(mass=4725. * CV.LB_TO_KG, wheelbase=3.065, steerRatio=19.67, tireStiffnessFactor=0.8),
     dbc_dict('toyota_sienna_hybrid_generated', 'toyota_tss2_adas'),
     flags=ToyotaFlags.TSS2 | ToyotaFlags.NO_STOP_TIMER | ToyotaFlags.NO_DSU | ToyotaFlags.SECOC | ToyotaFlags.ALT_GAS_MSG | ToyotaFlags.GEAR_PACKET_HYBRID,
   )
