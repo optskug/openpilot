@@ -105,7 +105,7 @@ class FrogPilotVariables:
     holiday_themes = custom_themes and self.params.get_bool("HolidayThemes")
     toggle.current_holiday_theme = self.params_memory.get_int("CurrentHolidayTheme") if holiday_themes else 0
     toggle.custom_sounds = self.params.get_int("CustomSounds") if custom_themes else 0
-    toggle.goat_scream = toggle.current_holiday_theme == 0 and toggle.custom_sounds == 1 and self.params.get_bool("GoatScream")
+    toggle.goat_scream = False
     toggle.random_events = custom_themes and self.params.get_bool("RandomEvents")
 
     custom_ui = self.params.get_bool("CustomUI")
