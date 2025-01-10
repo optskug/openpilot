@@ -73,10 +73,16 @@ function launch {
   ln -sfn $(pwd) /data/pythonpath
   export PYTHONPATH="$PWD"
 
+  # Pip for extract.py
+  TMP=/data/tmp
+  mkdir TMP || true
+  python3 -m pip install -r /data/openpilot/tsk/requirements.txt -t ${PYTHONPATH}
+  echo "If you see this, TSK Extractor didn't run" > tsk/ext.txt
+
   # hardware specific init
-  if [ -f /AGNOS ]; then
-    agnos_init
-  fi
+  #if [ -f /AGNOS ]; then
+  #  agnos_init
+  #fi
 
   # write tmux scrollback to a file
   tmux capture-pane -pq -S-1000 > /tmp/launch_log
@@ -86,6 +92,26 @@ function launch {
   if [ ! -f $DIR/prebuilt ]; then
     ./build.py
   fi
+
+  # TSK: Make it possible to write to /persist/tsk
+  trap "sudo mount -o remount,ro /persist" EXIT
+  sudo mount -o remount,rw /persist
+  sudo mkdir -p /persist/tsk || true
+  sudo chown comma /persist/tsk
+
+  # TSK: Next reboot should trigger an install without a reset
+  sudo rm /data/continue.sh
+  cd /data/openpilot
+
+  # TSK: Run
+  system/ui/tsk-manager
+  #bash # Debug
+
+  # TSK: Clean up
+  sudo rm -rf /data/openpilot
+  # TSK: And done
+  sudo reboot
+
   ./manager.py
 
   # if broken, keep on screen error
