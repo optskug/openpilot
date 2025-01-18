@@ -24,16 +24,16 @@ def write_key_to_files(key: str) -> Tuple[Optional[ValueError], Optional[OSError
 
   # Write to /data/params/d/SecOCKey
   try:
-    os.makedirs("/data/params/d", exist_ok=True)
+    # Directories should already exist
     with open("/data/params/d/SecOCKey", "w") as f:
       f.write(key)
   except OSError as e:
     params_error = e
 
-  # Write to /persist/tsk/key
+  # Write to /cache/params/SecOCKey
   try:
-    os.makedirs("/persist/tsk", exist_ok=True)
-    with open("/persist/tsk/key", "w") as f:
+    # Directories should already exist
+    with open("/cache/params/SecOCKey", "w") as f:
       f.write(key)
   except OSError as e:
     persist_error = e

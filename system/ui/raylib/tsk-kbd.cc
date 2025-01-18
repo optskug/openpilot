@@ -143,7 +143,13 @@ int main(int argc, char* argv[]) {
         static_cast<float>(INPUT_BOX_WIDTH), static_cast<float>(INPUT_BOX_HEIGHT)
     };
 
-    std::string inputText = readAndValidateKeyFile("/persist/tsk/key");
+    std::string inputText = readAndValidateKeyFile("/data/params/d/SecOCKey");
+    if (!inputText.length()) {
+        inputText = readAndValidateKeyFile("/cache/params/SecOCKey");
+        if (!inputText.length()) {
+            inputText = readAndValidateKeyFile("/persist/tsk/key");
+        }
+    }
 
     std::vector<std::string> keyTexts = {
         "1", "2", "3", "4", "5", "6", "7", "8", "9", "0",
@@ -214,7 +220,7 @@ int main(int argc, char* argv[]) {
         if (showInstallButton && CheckCollisionPointRec(GetMousePosition(), installButtonRect) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
             errorLabelLines.clear();
             auto [successData, errorData] = writeToFileWithError("/data/params/d/SecOCKey", inputText);
-            auto [successPersist, errorPersist] = writeToFileWithError("/persist/tsk/key", inputText);
+            auto [successPersist, errorPersist] = writeToFileWithError("/cache/params/SecOCKey", inputText);
 
             if (!successData) {
                 errorLabelLines.insert(errorLabelLines.end(), errorData.begin(), errorData.end());

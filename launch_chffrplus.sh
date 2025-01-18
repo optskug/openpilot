@@ -94,10 +94,14 @@ function launch {
   fi
 
   # TSK: Make it possible to write to /persist/tsk
-  trap "sudo mount -o remount,ro /persist" EXIT
-  sudo mount -o remount,rw /persist
-  sudo mkdir -p /persist/tsk || true
-  sudo chown comma /persist/tsk
+  #trap "sudo mount -o remount,ro /persist" EXIT
+  #sudo mount -o remount,rw /persist
+  #sudo mkdir -p /persist/tsk || true
+  #sudo chown comma /persist/tsk
+
+  # TSK: Prepare /cache/params
+  sudo mkdir -p /cache/params || true
+  sudo chown comma:comma /cache/params
 
   # TSK: Next reboot should trigger an install without a reset
   sudo rm /data/continue.sh
