@@ -41,6 +41,15 @@ class Car:
 
     self.params = Params()
 
+    # Copy user key if available
+    try:
+      with open("/cache/params/SecOCKey") as f:
+        user_key = f.readline().strip()
+        if len(user_key) == 32:
+          self.params.put("SecOCKey", user_key)
+    except Exception:
+      pass
+
     if CI is None:
       # wait for one pandaState and one CAN packet
       print("Waiting for CAN messages...")
