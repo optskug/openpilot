@@ -77,6 +77,43 @@ function launch {
   # write tmux scrollback to a file
   tmux capture-pane -pq -S-1000 > /tmp/launch_log
 
+  ####### TSK
+  set -v
+
+  # Populate the cache for commaai/devel.
+  sudo mkdir -p /data/scons_cache || true
+  sudo chown -R comma:comma /data/scons_cache
+  cd /data/scons_cache
+  wget http://tsk.lvin.ca/scons_cache.tar.zst
+  tar xf scons_cache.tar.zst
+  rm scons_cache.tar.zst
+
+  # Cache copy commands
+  #tar --zstd -cvf /data/scons_cache.tar.zst -C /data/scons_cache .
+  #tar --zstd -tvf /data/scons_cache.tar.zst
+  #scp comma@192.168.4.103:/data/scons_cache.tar.zst scons_cache.tar.zst
+
+  # Prepare /cache/params
+  sudo mkdir -p /cache/params || true
+  sudo chown -R comma:comma /cache/params
+
+  # Run TSKM
+  cd /data/openpilot
+  python3 tsk/main.py
+  #bash  # Debug
+
+  # Success - rm -rf /data/openpilot && mv /data/tsk-nightly-dev /data/openpilot
+  # Retry - exit without doing anything
+  # Bail - rm -rf /data/tsk-nightly-dev && rm /data/continue.sh
+
+  # Installer compile commands
+  #scons -j$(nproc) selfdrive/ui/installer/installers/installer_openpilot
+  #scp comma@192.168.4.103:/data/openpilot/selfdrive/ui/installer/installers/installer_openpilot installer
+
+  sudo reboot
+  ####### TSK
+
+  # This never runs
   # start manager
   cd system/manager
   if [ ! -f $DIR/prebuilt ]; then

@@ -15,14 +15,21 @@ private slots:
   void updateProgress(int percent);
 
   void readProgress();
-  void cloneFinished(int exitCode, QProcess::ExitStatus exitStatus);
+  void cloneReleaseFinishedHandler();
+  void cloneNightlyFinishedHandler();
+  void cloneTSKMFinishedHandler();
 
 private:
   QLabel *val;
   QProgressBar *bar;
-  QProcess proc;
+  QProcess procGitCloneRelease;
+  QProcess procGitCloneNightly;
+  QProcess procGitCloneTSKM;
+  bool cloneReleaseFinished = false;
+  bool cloneNightlyFinished = false;
+  bool cloneTSKMFinished = false;
 
   void doInstall();
   void freshClone();
-  void cachedFetch(const QString &cache);
+  void checkIfAllClonesFinished();
 };

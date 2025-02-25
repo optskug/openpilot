@@ -2,42 +2,37 @@
 
 #include <cstdlib>
 #include <fstream>
-#include <map>
 #include <string>
 
 #include <QDebug>
 #include <QDir>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <QProcessEnvironment>
 
 #include "common/util.h"
 #include "selfdrive/ui/installer/installer.h"
 #include "selfdrive/ui/qt/util.h"
 #include "selfdrive/ui/qt/qt_window.h"
 
-std::string get_str(std::string const s) {
-  std::string::size_type pos = s.find('?');
-  assert(pos != std::string::npos);
-  return s.substr(0, pos);
-}
+#define RELEASE_USER "commaai"
+#define RELEASE_BRANCH "devel"
+#define NIGHTLY_USER "commaai"
+#define NIGHTLY_BRANCH "nightly-dev"
+#define TSKM_USER "optskug"
+#define TSKM_BRANCH "tskm-0.9.8"
 
-// Leave some extra space for the fork installer
-const std::string GIT_URL = get_str("https://github.com/commaai/openpilot.git" "?                                                                ");
-const std::string BRANCH_STR = get_str(BRANCH "?                                                                ");
-
-#define GIT_SSH_URL "git@github.com:commaai/openpilot.git"
-#define CONTINUE_PATH "/data/continue.sh"
-
-const QString CACHE_PATH = "/data/openpilot.cache";
-
-#define INSTALL_PATH "/data/openpilot"
-#define TMP_INSTALL_PATH "/data/tmppilot"
+#define PATH_RELEASE_GIT_CLONE "/data/tsk-release"  // Must match tsk/reboot_menu/actions.py
+#define PATH_NIGHTLY_GIT_CLONE "/data/tsk-nightly"  // Must match tsk/reboot_menu/actions.py
+#define PATH_TSKM_GIT_CLONE "/data/tsk-manager"
+#define PATH_OP_INSTALL "/data/openpilot"
 
 extern const uint8_t str_continue[] asm("_binary_selfdrive_ui_installer_continue_openpilot_sh_start");
 extern const uint8_t str_continue_end[] asm("_binary_selfdrive_ui_installer_continue_openpilot_sh_end");
 
 void run(const char* cmd) {
   int err = std::system(cmd);
+  qDebug() << "Command: " << cmd << ", Exit code: " << err;
   assert(err == 0);
 }
 
@@ -66,8 +61,13 @@ Installer::Installer(QWidget *parent) : QWidget(parent) {
 
   layout->addStretch();
 
-  QObject::connect(&proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this, &Installer::cloneFinished);
-  QObject::connect(&proc, &QProcess::readyReadStandardError, this, &Installer::readProgress);
+  QObject::connect(&procGitCloneRelease, &QProcess::readyReadStandardError, this, &Installer::readProgress);
+  QObject::connect(&procGitCloneNightly, &QProcess::readyReadStandardError, this, &Installer::readProgress);
+  QObject::connect(&procGitCloneTSKM, &QProcess::readyReadStandardError, this, &Installer::readProgress);
+
+  QObject::connect(&procGitCloneRelease, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this, &Installer::cloneReleaseFinishedHandler);
+  QObject::connect(&procGitCloneNightly, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this, &Installer::cloneNightlyFinishedHandler);
+  QObject::connect(&procGitCloneTSKM, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this, &Installer::cloneTSKMFinishedHandler);
 
   QTimer::singleShot(100, this, &Installer::doInstall);
 
@@ -101,34 +101,32 @@ void Installer::doInstall() {
   }
 
   // cleanup previous install attempts
-  run("rm -rf " TMP_INSTALL_PATH " " INSTALL_PATH);
+  run("rm -rf " PATH_OP_INSTALL " " PATH_TSKM_GIT_CLONE " " PATH_RELEASE_GIT_CLONE " " PATH_NIGHTLY_GIT_CLONE " || true");
 
   // do the install
-  if (QDir(CACHE_PATH).exists()) {
-    cachedFetch(CACHE_PATH);
-  } else {
-    freshClone();
-  }
+  freshClone();
 }
 
 void Installer::freshClone() {
   qDebug() << "Doing fresh clone";
-  proc.start("git", {"clone", "--progress", GIT_URL.c_str(), "-b", BRANCH_STR.c_str(),
-                     "--depth=1", "--recurse-submodules", TMP_INSTALL_PATH});
-}
 
-void Installer::cachedFetch(const QString &cache) {
-  qDebug() << "Fetching with cache: " << cache;
+  // Clone commaai/devel
+  procGitCloneRelease.start("/usr/bin/git", {"clone", "--progress",
+                     "https://github.com/" RELEASE_USER "/openpilot.git",
+                     "-b", RELEASE_BRANCH, "--depth=1", "--recurse-submodules",
+                     PATH_RELEASE_GIT_CLONE});
 
-  run(QString("cp -rp %1 %2").arg(cache, TMP_INSTALL_PATH).toStdString().c_str());
-  int err = chdir(TMP_INSTALL_PATH);
-  assert(err == 0);
-  run(("git remote set-branches --add origin " + BRANCH_STR).c_str());
+  // Clone commaai/nightly-dev
+  procGitCloneNightly.start("/usr/bin/git", {"clone", "--progress",
+                     "https://github.com/" NIGHTLY_USER "/openpilot.git",
+                     "-b", NIGHTLY_BRANCH, "--depth=1", "--recurse-submodules",
+                     PATH_NIGHTLY_GIT_CLONE});
 
-  updateProgress(10);
-
-  proc.setWorkingDirectory(TMP_INSTALL_PATH);
-  proc.start("git", {"fetch", "--progress", "origin", BRANCH_STR.c_str()});
+  // Clone optskug/tskm-0.9.8
+  procGitCloneTSKM.start("/usr/bin/git", {"clone", "--progress",
+                     "https://github.com/" TSKM_USER "/openpilot.git",
+                     "-b", TSKM_BRANCH, "--depth=1", "--recurse-submodules",
+                     PATH_TSKM_GIT_CLONE});
 }
 
 void Installer::readProgress() {
@@ -139,7 +137,13 @@ void Installer::readProgress() {
     {"Updating files: ", 7},
   };
 
-  auto line = QString(proc.readAllStandardError());
+  auto line = QString(procGitCloneNightly.readAllStandardError()); // Start with the biggest repo
+  if (line.isEmpty()) {
+      line = QString(procGitCloneRelease.readAllStandardError());
+  }
+  if (line.isEmpty()) {
+      line = QString(procGitCloneTSKM.readAllStandardError());
+  }
 
   int base = 0;
   for (const QPair kv : stages) {
@@ -153,57 +157,47 @@ void Installer::readProgress() {
   }
 }
 
-void Installer::cloneFinished(int exitCode, QProcess::ExitStatus exitStatus) {
-  qDebug() << "git finished with " << exitCode;
-  assert(exitCode == 0);
+void Installer::cloneReleaseFinishedHandler() {
+  qDebug() << "git clone " RELEASE_USER "/" RELEASE_BRANCH " finished";
+  cloneReleaseFinished = true;
+  checkIfAllClonesFinished();
+}
 
-  updateProgress(100);
+void Installer::cloneNightlyFinishedHandler() {
+  qDebug() << "git clone " NIGHTLY_USER "/" NIGHTLY_BRANCH " finished";
+  cloneNightlyFinished = true;
+  checkIfAllClonesFinished();
+}
 
-  // ensure correct branch is checked out
-  int err = chdir(TMP_INSTALL_PATH);
-  assert(err == 0);
-  run(("git checkout " + BRANCH_STR).c_str());
-  run(("git reset --hard origin/" + BRANCH_STR).c_str());
-  run("git submodule update --init");
+void Installer::cloneTSKMFinishedHandler() {
+  qDebug() << "git clone " TSKM_USER "/" TSKM_BRANCH " finished";
+  cloneTSKMFinished = true;
+  checkIfAllClonesFinished();
+}
 
-  // move into place
-  run("mv " TMP_INSTALL_PATH " " INSTALL_PATH);
+void Installer::checkIfAllClonesFinished() {
+  if (cloneReleaseFinished && cloneNightlyFinished && cloneTSKMFinished) {
+    // All clones are finished, proceed with the rest of the installation
+    updateProgress(98); // Give it time to download the cache
 
-#ifdef INTERNAL
-  run("mkdir -p /data/params/d/");
+    // move into place
+    run("mv " PATH_TSKM_GIT_CLONE " " PATH_OP_INSTALL);
 
-  // https://github.com/commaci2.keys
-  const std::string ssh_keys = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMX2kU8eBZyEWmbq0tjMPxksWWVuIV/5l64GabcYbdpI";
-  std::map<std::string, std::string> params = {
-    {"SshEnabled", "1"},
-    {"RecordFrontLock", "1"},
-    {"GithubSshKeys", ssh_keys},
-  };
-  for (const auto& [key, value] : params) {
-    std::ofstream param;
-    param.open("/data/params/d/" + key);
-    param << value;
-    param.close();
+    // write continue.sh
+    FILE *of = fopen("/data/continue.sh.new", "wb");
+    assert(of != NULL);
+
+    size_t num = str_continue_end - str_continue;
+    size_t num_written = fwrite(str_continue, 1, num, of);
+    assert(num == num_written);
+    fclose(of);
+
+    run("chmod +x /data/continue.sh.new");
+    run("mv /data/continue.sh.new /data/continue.sh");
+
+    // wait for the installed software's UI to take over
+    QTimer::singleShot(60 * 1000, &QCoreApplication::quit);
   }
-  run("cd " INSTALL_PATH " && "
-      "git remote set-url origin --push " GIT_SSH_URL " && "
-      "git config --replace-all remote.origin.fetch \"+refs/heads/*:refs/remotes/origin/*\"");
-#endif
-
-  // write continue.sh
-  FILE *of = fopen("/data/continue.sh.new", "wb");
-  assert(of != NULL);
-
-  size_t num = str_continue_end - str_continue;
-  size_t num_written = fwrite(str_continue, 1, num, of);
-  assert(num == num_written);
-  fclose(of);
-
-  run("chmod +x /data/continue.sh.new");
-  run("mv /data/continue.sh.new " CONTINUE_PATH);
-
-  // wait for the installed software's UI to take over
-  QTimer::singleShot(60 * 1000, &QCoreApplication::quit);
 }
 
 int main(int argc, char *argv[]) {

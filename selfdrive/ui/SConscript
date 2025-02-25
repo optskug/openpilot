@@ -60,6 +60,21 @@ asset_obj = qt_env.Object("assets", assets)
 
 # build main UI
 qt_env.Program("ui", qt_src + [asset_obj], LIBS=qt_libs)
+
+# Build customer installer
+if arch != "Darwin":
+  senv = qt_env.Clone()
+  senv['LINKFLAGS'].append('-Wl,-strip-debug')
+
+  cont = senv.Command(f"installer/continue_openpilot.o", f"installer/continue_openpilot.sh",
+                      "ld -r -b binary -o $TARGET $SOURCE")
+  obj = senv.Object(f"installer/installers/installer_openpilot.o", ["installer/installer.cc"])
+  # Static linking
+  senv['LINKFLAGS'].append('-static-libstdc++')
+  f = senv.Program(f"installer/installers/installer_openpilot", [obj, cont], LIBS=qt_libs)
+  # keep installers small
+  assert f[0].get_size() < 370*1e3
+
 if GetOption('extras'):
   qt_src.remove("main.cc")  # replaced by test_runner
   qt_env.Program('tests/test_translations', [asset_obj, 'tests/test_runner.cc', 'tests/test_translations.cc'] + qt_src, LIBS=qt_libs)
@@ -73,31 +88,6 @@ if GetOption('extras'):
 
   # build updater UI
   qt_env.Program("qt/setup/updater", ["qt/setup/updater.cc", asset_obj], LIBS=qt_libs)
-
-  if arch != "Darwin":
-    # build installers
-    senv = qt_env.Clone()
-    senv['LINKFLAGS'].append('-Wl,-strip-debug')
-
-    release = "release3"
-    installers = [
-      ("openpilot", release),
-      ("openpilot_test", f"{release}-staging"),
-      ("openpilot_nightly", "nightly"),
-      ("openpilot_internal", "nightly-dev"),
-    ]
-
-    cont = senv.Command(f"installer/continue_openpilot.o", f"installer/continue_openpilot.sh",
-                        "ld -r -b binary -o $TARGET $SOURCE")
-    for name, branch in installers:
-      d = {'BRANCH': f"'\"{branch}\"'"}
-      if "internal" in name:
-        d['INTERNAL'] = "1"
-
-      obj = senv.Object(f"installer/installers/installer_{name}.o", ["installer/installer.cc"], CPPDEFINES=d)
-      f = senv.Program(f"installer/installers/installer_{name}", [obj, cont], LIBS=qt_libs)
-      # keep installers small
-      assert f[0].get_size() < 370*1e3
 
 # build watch3
 if arch in ['x86_64', 'aarch64', 'Darwin'] or GetOption('extras'):
