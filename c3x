@@ -1,0 +1,2 @@
+#!/bin/sh
+BIG=1 SCALE=1 .venv/bin/python tsk/main.py
