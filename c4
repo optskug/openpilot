@@ -1,0 +1,2 @@
+#!/bin/sh
+SCALE=0.5 .venv/bin/python tsk/main.py
