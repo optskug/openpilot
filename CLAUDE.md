@@ -79,3 +79,20 @@ Current status: **fixed and verified end-to-end in car**.
 
 ### 2026-04-10
 Two users reported successful key extraction using `calvinpark/tskm` — fix confirmed in the wild. Plan: squash the tskm branch to a single commit and push to `optskug/tskm` to ship it.
+
+### 2026-04-15
+Third user hit the same `can_version=0, library v1974202998` error after the 2026-04-09 fix shipped to `optskug/tskm`. Root-cause investigation revealed a harder failure mode.
+
+**What happened**: The user's device had `DEV-18392c3e-RELEASE` firmware. `panda.flash()` ran without error — but the firmware string and `up_to_date: False` were identical before and after. The SPI bulk writes were accepted without error but didn't persist. Immediately re-checking showed the same DEV firmware.
+
+**Why bare `panda.flash()` worked before but not here**: Previous users' firmware was overwritable via SPI. This device's DEV firmware resists SPI writes — possibly flash write protection, a hardware difference, or something specific to DEV builds. We can't prove it from the outside. What we know: the same scenario is exactly what pandad handles with its GPIO recovery path.
+
+**How the user was unblocked**: Installed `commaai/nightly-dev` on the device, which let pandad run and flash panda successfully via its full recovery sequence (GPIO BOOT0 HIGH → hardware DFU mode). Then ran TSKM from bare clone. This confirmed pandad's GPIO path could flash the device when bare `panda.flash()` could not.
+
+**Fix**: Replaced `panda = Panda(); panda.flash()` with `flash_panda()` from `selfdrive/pandad/pandad.py`. pandad's sequence adds: (1) `HARDWARE.recover_internal_panda()` on `PandaProtocolMismatch` (asserts BOOT0 HIGH during reset, forcing STM32 into hardware DFU mode), (2) `panda.recover()` (flashes bootstub via USB DFU), then reflashes the main app. The GPIO path bypasses whatever blocks SPI writes on resistant firmware.
+
+**Code changes** (`tsk/common/extractor.py`):
+- Added `class PandaError(Exception)` — hardware precondition failure, not retryable (falls through to "Unexpected error" handler, not `RetryError`)
+- Extracted flash logic to `TSKExtractor._connect_and_flash_panda()` staticmethod with full historical commentary (background, original fix, new failure, hypothesis, fix rationale, source attribution)
+- `hack()` call site: `panda = cls._connect_and_flash_panda()`
+- New imports: `from panda import PandaProtocolMismatch`, `from selfdrive.pandad.pandad import flash_panda`

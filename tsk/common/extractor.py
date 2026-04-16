@@ -10,7 +10,8 @@ from opendbc.car.isotp import isotp_send
 from opendbc.car.structs import CarParams
 from opendbc.car.uds import UdsClient, ACCESS_TYPE, SESSION_TYPE, DATA_IDENTIFIER_TYPE, SERVICE_TYPE, \
   ROUTINE_CONTROL_TYPE, InvalidServiceIdError, MessageTimeoutError, NegativeResponseError
-from panda import Panda
+from panda import Panda, PandaProtocolMismatch
+from selfdrive.pandad.pandad import flash_panda
 from tsk.common.env import is_agnos, PAYLOAD_PATH
 
 
@@ -29,6 +30,10 @@ class RetryError(Exception):
 
   def __str__(self) -> str:
     return f"{self.message}\n\nTry again. If the problem persists, turn off the car, put it back into 'Not Ready to Drive' mode, and then try again."
+
+
+class PandaError(Exception):
+  pass
 
 
 def format_version_for_error_display(version1, version2=None, length=8):
@@ -73,6 +78,81 @@ class TSKExtractor:
   SECOC_KEY_SIZE = 0x10
   SECOC_KEY_OFFSET = 0x0c
 
+  @staticmethod
+  def _connect_and_flash_panda() -> Panda:
+    """
+    Connects to the panda and ensures its firmware is up to date before the extractor runs.
+
+    ## Background
+
+    TSKM never starts pandad — launch_chffrplus.sh runs tsk/main.py directly, bypassing
+    manager.py entirely. In normal openpilot, manager.py starts pandad on every boot, and
+    pandad's first job is to flash the panda firmware if it's out of date. Since TSKM skips
+    that whole stack, the panda arrives at the extractor with whatever firmware it had before.
+
+    ## The Original Fix (April 2026)
+
+    Users were hitting: RuntimeError: CAN packet version mismatch: panda's firmware v0,
+    library v1974202998.
+
+    The panda library checks can_version (read from the panda's 0xdd endpoint) against
+    CAN_PACKET_VERSION (computed from can.h at runtime) before allowing any CAN send.
+    Firmware that predates the versioning scheme returns 0 bytes for 0xdd, so can_version=0.
+
+    Fix: call panda.flash() before the extractor runs. panda.flash() compares the firmware
+    binary signature and reflashes if it doesn't match. This worked for all users at the time.
+
+    ## The New Failure (April 2026, same month)
+
+    A user with firmware "DEV-18392c3e-RELEASE" reported the same can_version=0 error. When
+    we ran panda.flash() manually via SSH and then immediately re-checked, the firmware was
+    STILL "DEV-18392c3e-RELEASE" and up_to_date was STILL False. The flash appeared to run
+    (flash: unlocking → erasing → flashing → resetting) but nothing changed.
+
+    ## Hypothesis
+
+    panda.flash() sends flash data via SPI bulk write. On the working devices, the firmware
+    being replaced accepted those writes and the new firmware booted cleanly. On this device,
+    the SPI writes are accepted without error but don't persist — the panda comes back up on
+    the same DEV firmware after every reset. We don't know exactly why (flash write protection,
+    a hardware difference in this unit, something specific to DEV builds). What we do know is
+    that this is exactly the scenario pandad handles with its GPIO recovery path.
+
+    ## The Fix
+
+    Use pandad's flash_panda() instead of bare panda.flash(). pandad's sequence is:
+      1. Connect. If PandaProtocolMismatch, call HARDWARE.recover_internal_panda() (GPIO: assert
+         BOOT0 HIGH during reset, forcing the STM32 into hardware DFU mode) and retry.
+      2. Call panda.flash(). If firmware still won't boot (still in bootstub after flash):
+      3. For internal pandas (C3X, C4): call HARDWARE.recover_internal_panda() again, then
+         panda.recover() which flashes the bootstub via USB DFU, then reflashes the main app.
+      4. Verify signature matches expected firmware. Raise if not.
+
+    The GPIO path (step 3) is what bare panda.flash() is missing. By asserting BOOT0 HIGH at
+    the hardware level, it bypasses whatever was blocking the SPI writes and forces a clean
+    DFU-mode flash over USB.
+
+    Source: selfdrive/pandad/pandad.py, flash_panda() lines 24-61 and main() lines 106-115, 147.
+    """
+    panda_serials = Panda.list()
+    if not panda_serials:
+      raise PandaError("No panda found")
+
+    for _ in range(3):
+      try:
+        return flash_panda(panda_serials[0])
+      except PandaProtocolMismatch:
+        # flash_panda() already called HARDWARE.recover_internal_panda() before re-raising;
+        # wait for the panda to come back up and retry
+        time.sleep(3)
+        panda_serials = Panda.list()
+        if not panda_serials:
+          raise PandaError("No panda found after protocol recovery")
+      except AssertionError:
+        raise PandaError("Panda firmware update failed")
+
+    raise PandaError("Panda protocol mismatch persists after recovery")
+
   @classmethod
   def _get_key_struct(cls, data, key_no):
     return data[key_no * cls.KEY_STRUCT_SIZE: (key_no + 1) * cls.KEY_STRUCT_SIZE]
@@ -103,8 +183,7 @@ class TSKExtractor:
     except FileNotFoundError:
       pass
 
-    panda = Panda()
-    panda.flash()  # no-op if firmware is already up to date; required because TSKM kills pandad before it can flash
+    panda = cls._connect_and_flash_panda()
     panda.set_safety_mode(CarParams.SafetyModel.elm327)
 
     uds_client = UdsClient(panda, cls.ADDR, cls.ADDR + 8, cls.BUS, timeout=0.1, response_pending_timeout=0.1)
