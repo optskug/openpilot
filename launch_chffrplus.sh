@@ -86,6 +86,21 @@ function launch {
   # write tmux scrollback to a file
   tmux capture-pane -pq -S-1000 > /tmp/launch_log
 
+  # TSK: /cache is root-owned but the web server runs as comma, so create the TSK
+  # cache dir privileged and hand it to comma before its jobs write to it. /cache
+  # clears on AGNOS update, so recreate every boot; mkdir -p is idempotent.
+  sudo mkdir -p /cache/tsk
+  sudo chown comma:comma /cache/tsk
+  sudo mkdir -p /cache/params
+  sudo chown comma:comma /cache/params
+
+  # TSK: prefetch recommended and alternate openpilot branches
+  cd $DIR
+  python3 tsk/prefetch.py
+
+  # TSK: start web server before the manager so it survives manager kills
+  python3 -m tsk.web.server &
+
   # start manager
   cd openpilot/system/manager
   if [ ! -f $DIR/prebuilt ]; then

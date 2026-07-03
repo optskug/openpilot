@@ -22,6 +22,8 @@ bin/
 /teleoprtc
 /tinygrad
 
+/*.iml
+
 *.mp4
 *.dylib
 *.DSYM
