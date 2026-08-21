@@ -1,0 +1,840 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>TSK Manager</title>
+    <style>
+      * { box-sizing: border-box; margin: 0; }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+        background: #f2f2f7;
+        color: #1c1c1e;
+        min-height: 100vh;
+      }
+
+      .page {
+        width: min(100vw, 460px);
+        margin: 0 auto;
+        padding: 0 0 24px;
+      }
+
+      .page-header {
+        padding: 16px 20px 12px;
+      }
+
+      .page-title {
+        font-size: 28px;
+        font-weight: 700;
+      }
+
+      .page-url {
+        font-size: 13px;
+        color: #8e8e93;
+        margin-top: 2px;
+        overflow-wrap: anywhere;
+      }
+
+      .status-area {
+        padding: 14px 20px;
+      }
+
+      .status-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 6px;
+      }
+
+      .status-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: #ffcc00;
+        flex-shrink: 0;
+      }
+
+      .status-dot.good { background: #34c759; }
+      .status-dot.bad { background: #ff3b30; }
+
+      .status-title {
+        font-size: 17px;
+        font-weight: 600;
+      }
+
+      .status-key {
+        font-family: "SF Mono", ui-monospace, monospace;
+        font-size: 13px;
+        color: #8e8e93;
+        letter-spacing: 1px;
+        line-height: 1.8;
+      }
+
+      .prereq-row {
+        display: flex;
+        align-items: flex-start;
+        padding: 12px 16px;
+        border-bottom: 0.5px solid #c6c6c8;
+        text-decoration: none;
+        color: #1c1c1e;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .prereq-row:last-child { border-bottom: none; }
+      .prereq-row:active { background: #e5e5ea; }
+
+      .prereq-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: #ff3b30;
+        flex-shrink: 0;
+        margin-top: 5px;
+        margin-right: 10px;
+      }
+
+      .prereq-dot.ready { background: #34c759; }
+      .prereq-dot.warn { background: #ffcc00; }
+
+      .prereq-body { flex: 1; min-width: 0; }
+
+      .prereq-title {
+        font-size: 17px;
+        font-weight: 400;
+      }
+
+      .prereq-detail {
+        font-family: "SF Mono", ui-monospace, monospace;
+        font-size: 13px;
+        color: #8e8e93;
+        margin-top: 2px;
+      }
+
+      .prereq-chevron {
+        color: #c7c7cc;
+        font-size: 20px;
+        font-weight: 300;
+        margin-left: 8px;
+        flex-shrink: 0;
+        align-self: center;
+      }
+
+      .group-item.disabled {
+        color: #c7c7cc;
+        cursor: default;
+      }
+
+      .group-item.disabled:active {
+        background: #fff;
+      }
+
+      .section-label {
+        margin: 20px 16px 6px 20px;
+        font-size: 13px;
+        font-weight: 400;
+        color: #6d6d72;
+        text-transform: uppercase;
+      }
+
+      .group {
+        margin: 0 16px;
+        background: #fff;
+        border-radius: 12px;
+        overflow: hidden;
+      }
+
+      .hidden-row,
+      .group-item.hidden-row { display: none; }
+
+      .group-item {
+        display: block;
+        width: 100%;
+        padding: 12px 16px;
+        border: none;
+        border-bottom: 0.5px solid #c6c6c8;
+        background: #fff;
+        color: #1c1c1e;
+        text-align: left;
+        text-decoration: none;
+        font: inherit;
+        font-size: 17px;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .group-item:last-child {
+        border-bottom: none;
+      }
+
+      .group-item:active {
+        background: #e5e5ea;
+      }
+
+      .group-item.action {
+        color: #007aff;
+      }
+
+      .group-item.danger {
+        color: #ff3b30;
+      }
+
+      .group-item .chevron {
+        color: #c7c7cc;
+        font-size: 20px;
+        font-weight: 300;
+        margin-left: 8px;
+      }
+
+      /* --- Modal --- */
+
+      .modal-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.4);
+        z-index: 100;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+      }
+
+      .modal-overlay.visible {
+        display: flex;
+      }
+
+      .modal {
+        background: #fff;
+        border-radius: 14px;
+        width: min(100%, 300px);
+        text-align: center;
+        overflow: hidden;
+      }
+
+      .modal-content {
+        padding: 20px 16px;
+        text-align: left;
+      }
+
+      .modal-title {
+        font-size: 17px;
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
+
+      .modal-body {
+        font-size: 13px;
+        color: #8e8e93;
+        line-height: 1.4;
+        white-space: pre-wrap;
+      }
+
+      .modal-buttons {
+        display: flex;
+        border-top: 0.5px solid #c6c6c8;
+      }
+
+      .modal-btn {
+        flex: 1;
+        padding: 12px;
+        border: none;
+        background: none;
+        font: inherit;
+        font-size: 17px;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .modal-btn:active {
+        background: #e5e5ea;
+      }
+
+      .modal-btn + .modal-btn {
+        border-left: 0.5px solid #c6c6c8;
+      }
+
+      .modal-btn.cancel {
+        color: #007aff;
+      }
+
+      .modal-btn.confirm {
+        color: #007aff;
+        font-weight: 600;
+      }
+
+      .modal-btn.confirm-danger {
+        color: #ff3b30;
+        font-weight: 600;
+      }
+
+      /* --- Finding overlay --- */
+
+      .finding-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.4);
+        z-index: 200;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+      }
+
+      .finding-overlay.visible {
+        display: flex;
+      }
+
+      .finding-spinner {
+        width: 36px;
+        height: 36px;
+        border: 3px solid rgba(255, 255, 255, 0.3);
+        border-top-color: #fff;
+        border-radius: 50%;
+        animation: finding-spin 0.8s linear infinite;
+      }
+
+      @keyframes finding-spin {
+        to { transform: rotate(360deg); }
+      }
+
+      .finding-label {
+        color: #fff;
+        font-size: 15px;
+        font-weight: 500;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <header class="page-header">
+        <div class="page-title">TSK Manager</div>
+        <div class="page-url" id="webUrl">http://tsk.local:11111</div>
+      </header>
+
+      <div class="status-area">
+        <div class="status-row">
+          <div class="status-dot" id="keyLight"></div>
+          <div class="status-title" id="keyTitle">Key not installed</div>
+        </div>
+        <div class="status-key" id="keyDetail"></div>
+      </div>
+
+      <div class="section-label">2021, 2022, 2023 RAV4 Prime &amp; Sienna</div>
+      <div class="group">
+        <a class="group-item action" href="/extractor.html" style="text-decoration:none;display:flex;justify-content:space-between;align-items:center;">TSK Extractor <span class="chevron">›</span></a>
+      </div>
+
+      <div class="section-label">2021+</div>
+      <div class="group">
+        <a class="prereq-row" href="/can-collector.html" id="canRow">
+          <div class="prereq-dot" id="canDot"></div>
+          <div class="prereq-body">
+            <div class="prereq-title">Collect CAN messages</div>
+            <div class="prereq-detail" id="canDetail">Sync 0 / 50<br>Protected 0 / 30</div>
+          </div>
+          <div class="prereq-chevron">›</div>
+        </a>
+        <a class="prereq-row" href="/dataflash-collector.html" id="dfRow">
+          <div class="prereq-dot" id="dfDot"></div>
+          <div class="prereq-body">
+            <div class="prereq-title">Dump DataFlash</div>
+            <div class="prereq-detail" id="dfDetail" style="display:none;"></div>
+          </div>
+          <div class="prereq-chevron">›</div>
+        </a>
+      </div>
+
+      <div class="group" style="margin-top: 8px;">
+        <button class="group-item disabled" type="button" id="matcherBtn" disabled>Find Toyota Security Key (need CAN &amp; DataFlash)</button>
+      </div>
+
+      <div class="section-label">Manage</div>
+      <div class="group">
+        <button class="group-item disabled" type="button" id="cleanerBtn" disabled>Clear extraction cache</button>
+        <button class="group-item disabled" type="button" id="uninstallBtn" disabled>Uninstall key</button>
+      </div>
+
+      <div class="section-label">Reboot</div>
+      <div class="group">
+        <button class="group-item hidden-row" type="button" id="recommendedBtn">Install recommended</button>
+        <button class="group-item" type="button" id="alternateBtn">Install alternate</button>
+        <button class="group-item" type="button" id="differentBtn">Install a different fork/branch</button>
+        <button class="group-item" type="button" id="retryBtn">Reboot to try again</button>
+      </div>
+    </main>
+
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal">
+        <div class="modal-content">
+          <div class="modal-title" id="modalTitle"></div>
+          <div class="modal-body" id="modalBody"></div>
+        </div>
+        <div class="modal-buttons" id="modalButtons"></div>
+      </div>
+    </div>
+
+    <div class="finding-overlay" id="findingOverlay">
+      <div class="finding-spinner"></div>
+      <div class="finding-label">Finding key…</div>
+    </div>
+
+    <script>
+      const state = {
+        key: "",
+        running: false,
+        reboot: {},
+        canReady: false,
+        dfReady: false,
+        dfPartial: false,
+        dfBytes: 0,
+        dfTotal: 32768,
+      };
+
+      const els = {
+        webUrl: document.getElementById("webUrl"),
+        keyLight: document.getElementById("keyLight"),
+        keyTitle: document.getElementById("keyTitle"),
+        keyDetail: document.getElementById("keyDetail"),
+        canDot: document.getElementById("canDot"),
+        canDetail: document.getElementById("canDetail"),
+        dfDot: document.getElementById("dfDot"),
+        dfDetail: document.getElementById("dfDetail"),
+        matcherBtn: document.getElementById("matcherBtn"),
+        uninstallBtn: document.getElementById("uninstallBtn"),
+        cleanerBtn: document.getElementById("cleanerBtn"),
+        recommendedBtn: document.getElementById("recommendedBtn"),
+        alternateBtn: document.getElementById("alternateBtn"),
+        differentBtn: document.getElementById("differentBtn"),
+        retryBtn: document.getElementById("retryBtn"),
+        modalOverlay: document.getElementById("modalOverlay"),
+        modalTitle: document.getElementById("modalTitle"),
+        modalBody: document.getElementById("modalBody"),
+        modalButtons: document.getElementById("modalButtons"),
+        findingOverlay: document.getElementById("findingOverlay"),
+      };
+
+      function formatKey(hex) {
+        const groups = hex.match(/.{1,4}/g) || [];
+        const half = Math.ceil(groups.length / 2);
+        return groups.slice(0, half).join(" ") + "\n" + groups.slice(half).join(" ");
+      }
+
+      function setKey(key) {
+        state.key = key || "";
+        if (state.key) {
+          els.keyLight.className = "status-dot good";
+          els.keyTitle.textContent = "Key installed";
+          els.keyDetail.textContent = formatKey(state.key);
+        } else {
+          els.keyLight.className = "status-dot";
+          els.keyTitle.textContent = "Key not installed";
+          els.keyDetail.textContent = "";
+        }
+
+        els.uninstallBtn.disabled = state.running || !state.key;
+        if (state.key) {
+          els.uninstallBtn.classList.remove("disabled");
+          els.uninstallBtn.classList.add("danger");
+        } else {
+          els.uninstallBtn.classList.add("disabled");
+          els.uninstallBtn.classList.remove("danger");
+        }
+      }
+
+      function updateExtraction() {
+        // While a job is running, setRunning() owns the button UI (disabled + a
+        // "Finding key…" label). Bail so the 1s poll doesn't clobber that label or
+        // re-enable the button mid-run.
+        if (state.running) return;
+
+        const hasDf = state.dfReady || state.dfPartial;
+        const matcherReady = state.canReady && hasDf;
+        els.matcherBtn.disabled = !matcherReady;
+        if (matcherReady) {
+          els.matcherBtn.classList.remove("disabled");
+          els.matcherBtn.classList.add("action");
+          els.matcherBtn.textContent = "Find Toyota Security Key";
+        } else {
+          els.matcherBtn.classList.add("disabled");
+          els.matcherBtn.classList.remove("action");
+          const needCan = !state.canReady;
+          const needDf = !hasDf;
+          if (needCan && needDf) {
+            els.matcherBtn.textContent = "Find Toyota Security Key (need CAN & DataFlash)";
+          } else if (needCan) {
+            els.matcherBtn.textContent = "Find Toyota Security Key (need CAN)";
+          } else {
+            els.matcherBtn.textContent = "Find Toyota Security Key (need DataFlash)";
+          }
+        }
+
+        const hasCache = state.canReady || state.dfReady || state.dfPartial;
+        els.cleanerBtn.disabled = !hasCache;
+        if (hasCache) {
+          els.cleanerBtn.classList.remove("disabled");
+          els.cleanerBtn.classList.add("danger");
+        } else {
+          els.cleanerBtn.classList.add("disabled");
+          els.cleanerBtn.classList.remove("danger");
+        }
+      }
+
+      function renderLabel(btn, text) {
+        const m = text.match(/^(Install\s+)(\S+\/\S+)$/);
+        if (m) {
+          btn.innerHTML = "";
+          btn.appendChild(document.createTextNode(m[1]));
+          const code = document.createElement("span");
+          code.style.fontFamily = '"SF Mono", ui-monospace, monospace';
+          code.textContent = m[2];
+          btn.appendChild(code);
+        } else {
+          btn.textContent = text;
+        }
+      }
+
+      function setRunning(running) {
+        state.running = running;
+        for (const btn of document.querySelectorAll("button")) {
+          btn.disabled = running;
+        }
+        if (!running) {
+          setKey(state.key);
+          updateExtraction();
+        }
+      }
+
+      // --- Modal ---
+
+      function renderWithWarnings(el, text) {
+        el.innerHTML = "";
+        const mono = '"SF Mono", ui-monospace, monospace';
+        const lines = text.split("\n");
+        for (let i = 0; i < lines.length; i++) {
+          if (i > 0) el.appendChild(document.createElement("br"));
+          let line = lines[i];
+          const warn = line.startsWith("!!!!");
+          if (warn) line = line.replace(/^!{4}\s*/, "");
+          if (!line) continue;
+          const parts = line.split(/(\S+\/\S+)/);
+          for (const part of parts) {
+            if (!part) continue;
+            const span = document.createElement("span");
+            span.textContent = part;
+            if (warn) span.style.color = "#ff3b30";
+            if (/^\S+\/\S+$/.test(part) && part !== "fork/branch" && part !== "fork/branch?") span.style.fontFamily = mono;
+            el.appendChild(span);
+          }
+        }
+      }
+
+      function showModal(title, body, buttons) {
+        renderWithWarnings(els.modalTitle, title);
+        renderWithWarnings(els.modalBody, body);
+        els.modalButtons.innerHTML = "";
+        for (const b of buttons) {
+          const btn = document.createElement("button");
+          btn.className = "modal-btn " + (b.className || "");
+          btn.textContent = b.label;
+          btn.addEventListener("click", b.onClick);
+          els.modalButtons.appendChild(btn);
+        }
+        els.modalOverlay.classList.add("visible");
+      }
+
+      function hideModal() {
+        els.modalOverlay.classList.remove("visible");
+      }
+
+      function showAlert(title, body) {
+        showModal(title, body, [
+          { label: "OK", className: "confirm", onClick: hideModal },
+        ]);
+      }
+
+      // --- API helpers ---
+
+      async function postJson(url, payload) {
+        const response = await fetch(url, {
+          method: "POST",
+          cache: "no-store",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const result = await response.json();
+        return { response, result };
+      }
+
+      function responseBody(result) {
+        if (result.traceback) {
+          return `${result.message}\n\n${result.traceback}`;
+        }
+        return result.message || "No details returned.";
+      }
+
+      // --- Polling ---
+
+      async function fetchJson(url, timeoutMs = 3000) {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+        try {
+          const response = await fetch(url, { cache: "no-store", signal: ctrl.signal });
+          return await response.json();
+        } finally {
+          clearTimeout(timer);
+        }
+      }
+
+      async function loadHealth() {
+        try {
+          const response = await fetch("/api/health", { cache: "no-store" });
+          const health = await response.json();
+          els.webUrl.textContent = health.url || `http://${location.hostname || "tsk.local"}:${health.port}`;
+        } catch (err) {
+          els.webUrl.textContent = "server offline";
+        }
+      }
+
+      async function loadStatus() {
+        try {
+          const status = await fetchJson("/api/status");
+          setKey(status.key);
+        } catch (err) {
+          /* polling failure, ignore */
+        }
+      }
+
+      async function loadRebootActions() {
+        try {
+          const actions = await fetchJson("/api/reboot");
+          state.reboot = actions;
+          if (actions.recommended) renderLabel(els.recommendedBtn, actions.recommended.label);
+          if (actions.alternate) renderLabel(els.alternateBtn, actions.alternate.label);
+          if (actions.different) renderLabel(els.differentBtn, actions.different.label);
+          if (actions.retry) renderLabel(els.retryBtn, actions.retry.label);
+        } catch (err) {
+          /* polling failure, ignore */
+        }
+      }
+
+      function setDfDetail(df) {
+        // Surface partial and not-enough-data states on the row itself; a dot with
+        // only a terminal message on the other page is easy to miss. A failure shows
+        // just the red dot — the user already saw the error on the dump page — so it
+        // falls through to the hidden branch.
+        const status = df.status || "idle";
+        if (status === "running") {
+          els.dfDetail.style.display = "";
+          els.dfDetail.style.color = "#8e8e93";
+          els.dfDetail.textContent = `Dumping ${df.bytes} / ${df.total}`;
+        } else if (status === "partial") {
+          els.dfDetail.style.display = "";
+          els.dfDetail.style.color = "#ff9500";
+          els.dfDetail.textContent = df.message || "Partial dump. Try Find, or dump again.";
+        } else if (status === "key_missed") {
+          els.dfDetail.style.display = "";
+          els.dfDetail.style.color = "#ff3b30";
+          els.dfDetail.textContent = df.message || "Not enough data. Dump again.";
+        } else {
+          els.dfDetail.style.display = "none";
+          els.dfDetail.textContent = "";
+        }
+      }
+
+      async function loadExtractionStatus() {
+        try {
+          const [can, df] = await Promise.all([
+            fetchJson("/api/can-status"),
+            fetchJson("/api/dataflash-status"),
+          ]);
+          state.canReady = can.ready;
+          state.dfReady = df.ready;
+          state.dfPartial = df.status === "partial";
+          state.dfBytes = df.bytes || 0;
+          state.dfTotal = df.total || 32768;
+          els.canDot.className = can.ready ? "prereq-dot ready" : "prereq-dot";
+          els.canDetail.innerHTML = `Sync ${can.sync_count} / 50<br>Protected ${can.protected_count} / 30`;
+          if (df.ready) {
+            els.dfDot.className = "prereq-dot ready";
+          } else if (df.status === "partial") {
+            els.dfDot.className = "prereq-dot warn";
+          } else {
+            els.dfDot.className = "prereq-dot";
+          }
+          setDfDetail(df);
+          updateExtraction();
+        } catch (err) { /* polling failure */ }
+      }
+
+      async function refreshState() {
+        await Promise.all([
+          loadStatus(),
+          loadExtractionStatus(),
+          loadRebootActions(),
+        ]);
+      }
+
+      // --- Uninstall ---
+
+      els.uninstallBtn.addEventListener("click", () => {
+        if (state.running || !state.key) return;
+        const spaced = state.key.replace(/.{4}/g, "$& ").trim();
+        showModal("Uninstall key?", "Key: " + spaced, [
+          { label: "Cancel", className: "cancel", onClick: hideModal },
+          { label: "Uninstall", className: "confirm-danger", onClick: doUninstall },
+        ]);
+      });
+
+      async function doUninstall() {
+        hideModal();
+        try {
+          const { response, result } = await postJson("/api/uninstall", {});
+          setKey(result.key);
+          await loadRebootActions();
+          if (!response.ok) {
+            showAlert(result.title || "Uninstall failed", responseBody(result));
+          }
+        } catch (err) {
+          showAlert("Unexpected error", String(err));
+        }
+      }
+
+      // --- Cleaner ---
+
+      els.cleanerBtn.addEventListener("click", () => {
+        if (state.running) return;
+        showModal("Clear extraction cache?", "Delete CAN messages & DataFlash.\nKey is not deleted.", [
+          { label: "Cancel", className: "cancel", onClick: hideModal },
+          { label: "Clear", className: "confirm-danger", onClick: doClear },
+        ]);
+      });
+
+      async function doClear() {
+        hideModal();
+        try {
+          const { response, result } = await postJson("/api/clear-cache", {});
+          if (!response.ok) {
+            showAlert("Can't clear", result.message || "Clear failed.");
+            return;
+          }
+          state.canReady = false;
+          state.dfReady = false;
+          state.dfPartial = false;
+          els.canDot.className = "prereq-dot";
+          els.canDetail.innerHTML = "Sync 0 / 50<br>Protected 0 / 30";
+          els.dfDot.className = "prereq-dot";
+          els.dfDetail.style.display = "none";
+          els.dfDetail.textContent = "";
+          updateExtraction();
+        } catch (err) {
+          showAlert("Unexpected error", String(err));
+        }
+      }
+
+      // --- Matcher ---
+
+      function showFinding(on) {
+        els.findingOverlay.classList.toggle("visible", on);
+      }
+
+      function buildMatchDebug(result) {
+        // Complete-dump not-found: show what the scan saw so a report has numbers.
+        // Oracle totals ride in the sync/protected "matched/total" strings; the
+        // captured dump size comes from the status the page already polls.
+        const lines = ["No key found in the DataFlash dump.", ""];
+        if (result.address) {
+          lines.push(`Best candidate: ${result.address}`);
+          lines.push(`Matches: ${result.matches} (sync ${result.sync}, protected ${result.protected})`);
+        } else {
+          lines.push("No candidate window matched the CAN oracle.");
+        }
+        if (result.windows_scanned) lines.push(`Windows scanned: ${result.windows_scanned}`);
+        lines.push(`Dump captured: ${state.dfBytes} / ${state.dfTotal} bytes`);
+        lines.push("");
+        lines.push("Take a screenshot, post on #toyota-security, and ping @calvinspark.");
+        return lines.join("\n");
+      }
+
+      els.matcherBtn.addEventListener("click", async () => {
+        if (state.running || els.matcherBtn.disabled) return;
+        setRunning(true);
+        showFinding(true);
+        try {
+          const { response, result } = await postJson("/api/match", {});
+          showFinding(false);
+          if (result.status === "found") {
+            setKey(result.key);
+            await loadRebootActions();
+            showAlert("Success!", result.message);
+          } else if (!response.ok || result.status === "error") {
+            showAlert("Unexpected error", result.message || "The key finder failed.");
+          } else if (result.dump_partial) {
+            showAlert("Key not found", result.message || "Key not found in the partial DataFlash dump.");
+          } else {
+            showAlert("Key not found", buildMatchDebug(result));
+          }
+        } catch (err) {
+          showFinding(false);
+          showAlert("Unexpected error", String(err));
+        } finally {
+          showFinding(false);
+          setRunning(false);
+        }
+      });
+
+      // --- Reboot actions ---
+
+      function confirmReboot(action) {
+        return async () => {
+          if (state.running) return;
+          await refreshState();
+          const details = state.reboot[action] || {};
+          showModal(details.label || "Confirm action", details.prompt || "Confirm?", [
+            { label: "Cancel", className: "cancel", onClick: hideModal },
+            { label: "Confirm", className: "confirm", onClick: () => doReboot(action) },
+          ]);
+        };
+      }
+
+      async function doReboot(action) {
+        hideModal();
+        setRunning(true);
+        try {
+          const { response, result } = await postJson("/api/reboot", { action });
+          setKey(result.key);
+          await loadRebootActions();
+          if (!response.ok) {
+            showAlert(result.title || "Action failed", responseBody(result));
+          }
+        } catch (err) {
+          showAlert("Unexpected error", String(err));
+        } finally {
+          setRunning(false);
+        }
+      }
+
+      els.recommendedBtn.addEventListener("click", confirmReboot("recommended"));
+      els.alternateBtn.addEventListener("click", confirmReboot("alternate"));
+      els.differentBtn.addEventListener("click", confirmReboot("different"));
+      els.retryBtn.addEventListener("click", confirmReboot("retry"));
+
+      // --- Init ---
+
+      async function pollState() {
+        try {
+          await refreshState();
+        } catch (err) {
+          /* keep the loop alive */
+        } finally {
+          setTimeout(pollState, 1000);
+        }
+      }
+
+      loadHealth();
+      pollState();
+      setInterval(loadHealth, 5000);
+    </script>
+  </body>
+</html>

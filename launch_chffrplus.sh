@@ -78,27 +78,22 @@ function launch {
   tmux capture-pane -pq -S-1000 > /tmp/launch_log
 
   ####### TSK
-  set -v
+  # TSK: /cache is root-owned but the web server runs as comma, so create the TSK
+  # cache dirs privileged and hand them to comma before its jobs write to them.
+  # /cache clears on AGNOS update, so recreate every boot; mkdir -p is idempotent.
+  sudo mkdir -p /cache/tsk
+  sudo chown comma:comma /cache/tsk
+  sudo mkdir -p /cache/params
+  sudo chown comma:comma /cache/params
 
-  # Prepare /cache/params
-  sudo mkdir -p /cache/params || true
-  sudo chown -R comma:comma /cache/params
-
-  # Run TSKM
-  cd /data/openpilot
+  # TSK: prefetch recommended and alternate openpilot branches
+  cd $DIR
   python3 tsk/prefetch.py
-  python3 tsk/main.py
-  #bash  # Debug
 
-  # Success - rm -rf /data/openpilot && mv /data/tsk-recommended /data/openpilot
-  # Retry - exit without doing anything
-  # Bail - rm -rf /data/tsk-nightly-dev && rm /data/continue.sh
-
-  sudo reboot
-  exit
+  # TSK: start web server before the manager so it survives manager kills
+  python3 -m tsk.web.server &
   ####### TSK
 
-  # This never runs
   # start manager
   cd system/manager
   if [ ! -f $DIR/prebuilt ]; then

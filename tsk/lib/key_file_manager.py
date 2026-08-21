@@ -1,12 +1,16 @@
-# tsk/common/key_file_manager.py
+# tsk/lib/key_file_manager.py
 
 import os
 import re
 import threading
 import time
 
-from tsk.common.env import is_agnos
-from tsk.ui.layout import Theme
+from tsk.lib.env import is_agnos
+
+
+def format_key(key: str) -> str:
+  """Formats a hex key with a space every 4 characters."""
+  return " ".join(key[i:i+4] for i in range(0, len(key), 4))
 
 
 class KeyFileManager:
@@ -14,10 +18,16 @@ class KeyFileManager:
   DATA_PARAMS_D_SECOCKEY_PATH = "/data/params/d/SecOCKey"
   CACHE_PARAMS_SECOCKEY_PATH = "/cache/params/SecOCKey"
   HOME_SECOCKEY_PATH = os.path.expanduser("~/SecOCKey")
+  STATUS_UPDATE_INTERVAL = 1
 
-  def __init__(self):
-    self.installed_key = KeyFileManager._read_key_from_files()  # Initialize installed_key
-    threading.Thread(target=self._update_key_status_loop, daemon=True).start()
+  _instance = None
+
+  def __new__(cls):
+    if cls._instance is None:
+      cls._instance = super().__new__(cls)
+      cls._instance.installed_key = cls._read_key_from_files()
+      threading.Thread(target=cls._instance._update_key_status_loop, daemon=True).start()
+    return cls._instance
 
   @staticmethod
   def _is_key_valid(key: str) -> bool:
@@ -96,7 +106,7 @@ class KeyFileManager:
     """Periodically updates the key status."""
     while True:
       self.installed_key = KeyFileManager._read_key_from_files()
-      time.sleep(Theme.status_update_interval)  # Check every x second
+      time.sleep(self.STATUS_UPDATE_INTERVAL)
 
   def install_key(self, key: str) -> None:
     """Installs the key by writing it to the appropriate file(s) based on the AGNOS environment."""
@@ -106,7 +116,7 @@ class KeyFileManager:
 
     if not is_agnos():
       KeyFileManager._write_key_to_file(KeyFileManager.HOME_SECOCKEY_PATH, key)
-      KeyFileManager._installed_key = KeyFileManager._read_key_from_files()
+      self.installed_key = KeyFileManager._read_key_from_files()
       return
 
     KeyFileManager._write_key_to_file(KeyFileManager.DATA_PARAMS_D_SECOCKEY_PATH, key)

@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>TSK Extractor</title>
+    <style>
+      * { box-sizing: border-box; margin: 0; }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+        background: #f2f2f7;
+        color: #1c1c1e;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .page {
+        width: min(100vw, 460px);
+        margin: 0 auto;
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 100vh;
+      }
+
+      .back-bar {
+        padding: 12px 20px;
+      }
+
+      .back-link {
+        color: #007aff;
+        font-size: 17px;
+        text-decoration: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .back-link::before {
+        content: "‹ ";
+      }
+
+      .page-header {
+        padding: 0 20px 12px;
+      }
+
+      .page-title {
+        font-size: 28px;
+        font-weight: 700;
+      }
+
+      .terminal {
+        margin: 0 16px 16px;
+        background: #1c1c1e;
+        border-radius: 12px;
+        padding: 16px;
+        flex: 1;
+        overflow-y: auto;
+        overflow-x: hidden;
+        font-family: "SF Mono", ui-monospace, monospace;
+        font-size: 13px;
+        line-height: 1.6;
+        color: #e5e5ea;
+        white-space: pre-wrap;
+        word-break: break-all;
+      }
+
+      .terminal .err { color: #ff453a; }
+      .terminal .ok { color: #30d158; }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <div class="back-bar">
+        <a class="back-link" href="/">TSK Manager</a>
+      </div>
+      <header class="page-header">
+        <div class="page-title">TSK Extractor</div>
+      </header>
+      <div class="terminal" id="terminal"></div>
+    </main>
+
+    <script>
+      const terminal = document.getElementById("terminal");
+
+      function termWrite(text, className) {
+        const span = document.createElement("span");
+        if (className) span.className = className;
+        span.textContent = text + "\n";
+        terminal.appendChild(span);
+        terminal.scrollTop = terminal.scrollHeight;
+      }
+
+      async function runExtractor() {
+        try {
+          const response = await fetch("/api/extract", { method: "POST", cache: "no-store" });
+          const result = await response.json();
+          termWrite(result.message || "", response.ok ? "ok" : "err");
+        } catch (err) {
+          termWrite(String(err), "err");
+        }
+      }
+
+      runExtractor();
+    </script>
+  </body>
+</html>

@@ -1,17 +1,10 @@
 #!/usr/bin/env python3
 import struct
+import subprocess
 import time
 from subprocess import check_output, CalledProcessError
 
-from Crypto.Cipher import AES
-from tqdm import tqdm
-
-from opendbc.car.isotp import isotp_send
-from opendbc.car.structs import CarParams
-from opendbc.car.uds import UdsClient, ACCESS_TYPE, SESSION_TYPE, DATA_IDENTIFIER_TYPE, SERVICE_TYPE, \
-  ROUTINE_CONTROL_TYPE, InvalidServiceIdError, MessageTimeoutError, NegativeResponseError
-from panda import Panda
-from tsk.common.env import is_agnos
+from tsk.lib.env import is_agnos, PAYLOAD_PATH
 
 
 class NotAGNOSError(Exception):
@@ -29,6 +22,10 @@ class RetryError(Exception):
 
   def __str__(self) -> str:
     return f"{self.message}\n\nTry again. If the problem persists, turn off the car, put it back into 'Not Ready to Drive' mode, and then try again."
+
+
+class PandaError(Exception):
+  pass
 
 
 def format_version_for_error_display(version1, version2=None, length=8):
@@ -73,6 +70,34 @@ class TSKExtractor:
   SECOC_KEY_SIZE = 0x10
   SECOC_KEY_OFFSET = 0x0c
 
+  _panda = None
+
+  @classmethod
+  def _connect_panda(cls):
+    """Connect to the panda. The manager's pandad has already flashed the firmware.
+    Stash the handle so the caller can close it after the operation (_close_panda)."""
+    from panda import Panda
+
+    panda_serials = Panda.list()
+    if not panda_serials:
+      raise PandaError("No panda found")
+
+    cls._panda = Panda(panda_serials[0])
+    return cls._panda
+
+  @classmethod
+  def _close_panda(cls) -> None:
+    """Close and forget the stashed panda handle, if any. Idempotent. Called from the
+    server's finally blocks so extract/dump/collect release the USB handle rather than
+    leaking it until GC. Safe because the panda mutex serializes the three operations."""
+    panda = cls._panda
+    cls._panda = None
+    if panda is not None:
+      try:
+        panda.close()
+      except Exception:
+        pass
+
   @classmethod
   def _get_key_struct(cls, data, key_no):
     return data[key_no * cls.KEY_STRUCT_SIZE: (key_no + 1) * cls.KEY_STRUCT_SIZE]
@@ -89,21 +114,26 @@ class TSKExtractor:
 
   @classmethod
   def hack(cls):
-    """Initializes the ECU connection and checks if boardd is running."""
+    """Extracts the SecOC key from the EPS ECU via UDS over CAN."""
     if not is_agnos():
       raise NotAGNOSError
 
-    try:
-      check_output(["pidof", "boardd"])
-      # This shouldn't happen since we never started boardd
-      raise BoarddNotRunningError("boardd is running, kill openpilot and run again")
-    except CalledProcessError as e:
-      if e.returncode != 1:  # 1 == no process found (boardd not running)
-        raise e
-    except FileNotFoundError:
-      pass
+    from Crypto.Cipher import AES
+    from tqdm import tqdm
 
-    panda = Panda()
+    from opendbc.car.isotp import isotp_send
+    from opendbc.car.structs import CarParams
+    from opendbc.car.uds import UdsClient, ACCESS_TYPE, SESSION_TYPE, DATA_IDENTIFIER_TYPE, SERVICE_TYPE, \
+      ROUTINE_CONTROL_TYPE, InvalidServiceIdError, MessageTimeoutError, NegativeResponseError
+
+    # Kill the manager so it doesn't restart pandad during extraction.
+    # SIGKILL skips manager_cleanup(), keeping tskweb alive as an orphan.
+    # User must reboot after extraction.
+    subprocess.run(["pkill", "-9", "-f", "manager.py"], check=False)
+    subprocess.run(["pkill", "-9", "-f", "pandad"], check=False)
+    time.sleep(2)
+
+    panda = cls._connect_panda()
     panda.set_safety_mode(CarParams.SafetyModel.elm327)
 
     uds_client = UdsClient(panda, cls.ADDR, cls.ADDR + 8, cls.BUS, timeout=0.1, response_pending_timeout=0.1)
@@ -196,7 +226,7 @@ class TSKExtractor:
       resp = uds_client._uds_request(SERVICE_TYPE.REQUEST_DOWNLOAD, data=data)
 
       # Upload payload
-      payload = open("/data/openpilot/tsk/tools_menu/payload.bin", "rb").read()
+      payload = open(PAYLOAD_PATH, "rb").read()
       assert len(payload) == 0x1000
       chunk_size = 0x400
       for i in range(len(payload) // chunk_size):
@@ -252,38 +282,35 @@ class TSKExtractor:
 
     extracted = b""
 
-    with open(f'data_{start:08x}_{end:08x}.bin', 'wb') as f:
-      with tqdm(total=end - start) as pbar:
-        while start < end:
+    with tqdm(total=end - start) as pbar:
+      while start < end:
 
-          current_time = time.time()
-          if current_time - start_time > timeout:
-            raise RetryError("Key dumping timed out")
+        current_time = time.time()
+        if current_time - start_time > timeout:
+          raise RetryError("Key dumping timed out")
 
-          for addr, *_, data, bus in panda.can_recv():
-            if bus != cls.BUS:
-              continue
+        for addr, *_, data, bus in panda.can_recv():
+          if bus != cls.BUS:
+            continue
 
-            if data == b"\x03\x7f\x31\x78\x00\x00\x00\x00":  # Skip response pending
-              continue
+          if data == b"\x03\x7f\x31\x78\x00\x00\x00\x00":  # Skip response pending
+            continue
 
-            if addr != cls.ADDR + 8:
-              continue
+          if addr != cls.ADDR + 8:
+            continue
 
-            if cls.DEBUG:
-              print(f"{data.hex()}")
+          if cls.DEBUG:
+            print(f"{data.hex()}")
 
-            ptr = struct.unpack("<I", data[:4])[0]
-            assert (ptr >> 8) == start & 0xffffff  # Check lower 24 bits of address
+          ptr = struct.unpack("<I", data[:4])[0]
+          assert (ptr >> 8) == start & 0xffffff  # Check lower 24 bits of address
 
-            extracted += data[4:]
-            f.write(data[4:])
-            f.flush()
+          extracted += data[4:]
 
-            start += 4
-            pbar.update(4)
+          start += 4
+          pbar.update(4)
 
-            start_time = time.time()
+          start_time = time.time()
 
     key_1_ok = cls._verify_checksum(cls._get_key_struct(extracted, 1))
     key_4_ok = cls._verify_checksum(cls._get_key_struct(extracted, 4))
@@ -306,7 +333,7 @@ class TSKExtractor:
     except (BoarddNotRunningError, RetryError):
       raise
     except Exception as e:
-      e.add_note("\n\n!!!! Unexpected error. Please take a photo, post it on #toyota-security, and ping @calvinspark\n")
+      e.add_note("\n\n!!!! Unexpected error. Please take a screenshot, post it on #toyota-security, and ping @calvinspark\n")
       raise
 
     print("SecOC key extracted successfully")

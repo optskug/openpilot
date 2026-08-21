@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>DataFlash Dump</title>
+    <style>
+      * { box-sizing: border-box; margin: 0; }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+        background: #f2f2f7;
+        color: #1c1c1e;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .page {
+        width: min(100vw, 460px);
+        margin: 0 auto;
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 100vh;
+      }
+
+      .back-bar {
+        padding: 12px 20px;
+      }
+
+      .back-link {
+        color: #007aff;
+        font-size: 17px;
+        text-decoration: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .back-link::before {
+        content: "‹ ";
+      }
+
+      .page-header {
+        padding: 0 20px 12px;
+      }
+
+      .page-title {
+        font-size: 28px;
+        font-weight: 700;
+      }
+
+      .terminal {
+        margin: 0 16px 16px;
+        background: #1c1c1e;
+        border-radius: 12px;
+        padding: 16px;
+        flex: 1;
+        overflow-y: auto;
+        overflow-x: hidden;
+        font-family: "SF Mono", ui-monospace, monospace;
+        font-size: 13px;
+        line-height: 1.6;
+        color: #e5e5ea;
+        white-space: pre-wrap;
+        word-break: break-all;
+      }
+
+      .terminal .err { color: #ff453a; }
+      .terminal .ok { color: #30d158; }
+      .terminal .warn { color: #ff9f0a; }
+      .terminal .dim { color: #8e8e93; }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <div class="back-bar">
+        <a class="back-link" href="/">TSK Manager</a>
+      </div>
+      <header class="page-header">
+        <div class="page-title">DataFlash Dump</div>
+      </header>
+      <div class="terminal" id="terminal"></div>
+    </main>
+
+    <script>
+      const terminal = document.getElementById("terminal");
+
+      function termWrite(text, className) {
+        const span = document.createElement("span");
+        if (className) span.className = className;
+        span.textContent = text + "\n";
+        terminal.appendChild(span);
+        terminal.scrollTop = terminal.scrollHeight;
+      }
+
+      function sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+      }
+
+      async function getStatus() {
+        const response = await fetch("/api/dataflash-status", { cache: "no-store" });
+        return response.json();
+      }
+
+      function progressBar(bytes, total) {
+        const pct = total ? Math.round(bytes / total * 100) : 0;
+        const filled = Math.max(0, Math.min(20, Math.round(pct / 5)));
+        const bar = "█".repeat(filled) + "░".repeat(20 - filled);
+        return `  [${bar}] ${bytes}/${total}`;
+      }
+
+      function writeOutcome(s) {
+        termWrite("");
+        if (s.status === "complete") {
+          termWrite("Dump complete.", "ok");
+        } else if (s.status === "partial") {
+          termWrite(s.message || "Partial dump. Try Find, or dump again.", "warn");
+        } else if (s.status === "key_missed") {
+          termWrite(s.message || "Partial dump. Not enough data. Dump again.", "err");
+        } else {
+          termWrite(s.message || "Dump failed.", "err");
+        }
+      }
+
+      async function runDump() {
+        // Attach to an in-progress dump, or short-circuit a finished one, before
+        // starting a fresh dump. Revisiting the page after a complete dump does
+        // not re-dump; revisiting after partial/key_missed/failed retries.
+        let s = null;
+        try {
+          s = await getStatus();
+        } catch (err) { /* server not reachable yet, fall through to start */ }
+
+        if (s && s.status === "complete") {
+          termWrite("Dump already complete.", "ok");
+          return;
+        }
+
+        if (s && s.status === "running") {
+          termWrite("A dump is already in progress — attaching...");
+        } else {
+          termWrite("Starting DataFlash dump.");
+          termWrite("The car will freak out - don't worry.", "warn");
+          try {
+            const response = await fetch("/api/dataflash-dump", { method: "POST", cache: "no-store" });
+            const started = await response.json();
+            if (!started.ok && started.status !== "running") {
+              termWrite(started.message || "Could not start dump.", "err");
+              return;
+            }
+          } catch (err) {
+            termWrite(String(err), "err");
+            return;
+          }
+        }
+
+        termWrite("Dumping 0xFF200000-0xFF208000.");
+        let lastBytes = -1;
+        while (true) {
+          await sleep(500);
+          try {
+            s = await getStatus();
+          } catch (err) {
+            continue;  // transient poll failure, keep waiting
+          }
+          if (s.status === "running") {
+            if (s.bytes !== lastBytes) {
+              lastBytes = s.bytes;
+              termWrite(progressBar(s.bytes, s.total || 32768));
+            }
+            continue;
+          }
+          writeOutcome(s);
+          break;
+        }
+      }
+
+      runDump();
+    </script>
+  </body>
+</html>

@@ -30,7 +30,7 @@ import pyray as rl
 
 # Local imports
 from openpilot.system.ui.lib.application import gui_app
-from tsk.common.env import (
+from tsk.lib.env import (
   RECOMMENDED_OP_USER,
   RECOMMENDED_OP_BRANCH,
   RECOMMENDED_OP_DIR,
